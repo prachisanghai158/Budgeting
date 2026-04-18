@@ -1,0 +1,23 @@
+{
+  "name": "sw-proxy",
+  "version": "1.0.0",
+  "description": "",
+  "main": "worker.js",
+  "scripts": {
+    "start": "node dev-server.js",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "set-secret": "wrangler secret put SW_API_KEY",
+    "tail": "wrangler tail"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "wrangler": "^4.81.1"
+  },
+  "dependencies": {
+    "https-proxy-agent": "^9.0.0"
+  }
+}
