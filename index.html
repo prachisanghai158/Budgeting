@@ -203,6 +203,9 @@ html::-webkit-scrollbar,body::-webkit-scrollbar{display:none}
   <div class="modal"><div class="mhandle"></div><div class="mtitle" id="mtitle"></div><div id="mbody"></div></div>
 </div>
 <div class="toast" id="toast" style="display:none"></div>
+<!-- Persistent file inputs outside render loop — survive re-renders -->
+<input type="file" id="imp" accept=".json" style="display:none">
+<input type="file" id="imp-xl" accept=".xlsx,.xls" style="display:none">
 <script>
 const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MF=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -1108,15 +1111,14 @@ function rSettings(){
   <div class="eitem"><div class="einfo"><div style="font-size:11px;color:var(--on-surface-variant);word-break:break-all" id="fb-url-display">${FB_URL}</div></div></div></div>
   <div class="card"><div class="ctitle">Backup & Export</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button class="sbtn" style="margin-top:0;font-size:13px" onclick="exportJSON()">⬇ Export JSON</button><button class="xbtn" style="margin-top:0;font-size:13px" onclick="document.getElementById('imp').click()">⬆ Import JSON</button></div>
-  <input type="file" id="imp" accept=".json" style="display:none" onchange="importJSON(this)">
   <button class="xbtn" style="font-size:13px;margin-top:8px" onclick="exportCSV()">⬇ Export CSV</button>
   <div style="margin-top:12px;padding-top:12px">
-    <div style="font-size:11px;color:var(--on-surface-variant);margin-bottom:8px">📊 Excel — bulk edit on laptop, re-upload to sync</div>
+    <div style="font-size:11px;color:var(--on-surface-variant);margin-bottom:8px">📊 Excel — bulk edit on laptop, re-upload to sync all data</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <button class="sbtn" style="margin-top:0;font-size:13px;background:var(--amber);color:var(--surface)" onclick="exportExcel()">⬇ Export Excel</button>
-      <button class="xbtn" style="margin-top:0;font-size:13px" onclick="document.getElementById('imp-xl').click()">⬆ Import Excel</button>
+      <button class="sbtn" style="margin-top:0;font-size:13px;background:linear-gradient(135deg,#1a7a3a,#1cc98e);color:#fff" onclick="exportExcel()">⬇ Export Excel</button>
+      <button class="sbtn" style="margin-top:0;font-size:13px;background:linear-gradient(135deg,#1a4a7a,#4a9eff);color:#fff" onclick="document.getElementById('imp-xl').click()">⬆ Import Excel</button>
     </div>
-    <input type="file" id="imp-xl" accept=".xlsx" style="display:none" onchange="importExcel(this)">
+    <div style="font-size:10px;color:var(--on-surface-variant);margin-top:6px;line-height:1.5">Import replaces ALL data and syncs to Firebase instantly ☁️</div>
   </div></div>
   <div class="card"><div class="ctitle">Splitwise<span class="ctitle-edit" onclick="openSwSetup()">${D.sw&&D.sw.groupId?'Change':'Set up'}</span></div>
   ${D.sw&&D.sw.groupId
@@ -1541,10 +1543,18 @@ function exportExcel(){
   };
   if(window.XLSX){doExport();}
   else{
+    toast('Loading Excel library…');
     const s=document.createElement('script');
     s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
     s.onload=doExport;
-    s.onerror=()=>toast('Could not load Excel library');
+    s.onerror=()=>{
+      // Try unpkg as fallback
+      const s2=document.createElement('script');
+      s2.src='https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js';
+      s2.onload=doExport;
+      s2.onerror=()=>toast('❌ Could not load Excel library — check internet connection');
+      document.head.appendChild(s2);
+    };
     document.head.appendChild(s);
   }
 }
@@ -1753,18 +1763,33 @@ function importExcel(inp){
         }
 
         ss();render();
-        toast('Full data replaced from Excel ✓');
-      }catch(err){console.error(err);toast('Could not read Excel: '+err.message);}
+        toast('✅ Data replaced — syncing to Firebase…');
+        // Immediately push to Firebase (bypass debounce) so other phone gets it right away
+        setTimeout(async()=>{
+          try{
+            const r=await fetch(FB_URL+'/psbudget.json',{method:'PUT',body:JSON.stringify({...D,_t:Date.now()}),headers:{'Content-Type':'application/json'}});
+            setSyncStatus(r.ok?'ok':'error',r.ok?'Synced':'Sync failed');
+            if(r.ok)toast('☁️ Synced to Firebase — refresh on other phone!');
+          }catch(e){setSyncStatus('error','Offline');toast('⚠️ Saved locally, no internet');}
+        },100);
+      }catch(err){console.error(err);toast('❌ Could not read Excel: '+err.message);}
       inp.value='';
     };
     reader.readAsArrayBuffer(file);
   };
   if(window.XLSX){doImport();}
   else{
+    toast('Loading Excel library…');
     const s=document.createElement('script');
     s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
     s.onload=doImport;
-    s.onerror=()=>toast('Could not load Excel library');
+    s.onerror=()=>{
+      const s2=document.createElement('script');
+      s2.src='https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js';
+      s2.onload=doImport;
+      s2.onerror=()=>{toast('❌ Could not load Excel library — check internet');inp.value='';};
+      document.head.appendChild(s2);
+    };
     document.head.appendChild(s);
   }
 }
@@ -1775,6 +1800,9 @@ function ss(){save();}
 // ── INIT ─────────────────────────────────────
 (async()=>{
   if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
+  // Wire persistent file inputs — survives re-renders
+  document.getElementById('imp').addEventListener('change',function(){importJSON(this);});
+  document.getElementById('imp-xl').addEventListener('change',function(){importExcel(this);});
   await load();
   setView('H');
 })();
