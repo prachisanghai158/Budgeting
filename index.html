@@ -1538,8 +1538,22 @@ function exportExcel(){
     wsI['!cols']=[{wch:80}];
     XLSX.utils.book_append_sheet(wb,'Instructions',wsI);
 
-    XLSX.writeFile(wb,'PS_Budget_'+today()+'.xlsx');
-    toast('Excel exported ✓');
+    // ── Write & Download ───────────────────────────────────────
+    try{
+      const wbout=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+      const blob=new Blob([wbout],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download='PS_Budget_'+today()+'.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},2000);
+      toast('✅ Excel exported!');
+    }catch(err){
+      console.error('Export write error:',err);
+      toast('❌ Export failed: '+err.message);
+    }
   };
   if(window.XLSX){doExport();}
   else{
@@ -1803,6 +1817,17 @@ function ss(){save();}
   // Wire persistent file inputs — survives re-renders
   document.getElementById('imp').addEventListener('change',function(){importJSON(this);});
   document.getElementById('imp-xl').addEventListener('change',function(){importExcel(this);});
+  // Preload XLSX library in background so Export is always instant
+  if(!window.XLSX){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onerror=()=>{
+      const s2=document.createElement('script');
+      s2.src='https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js';
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s);
+  }
   await load();
   setView('H');
 })();
